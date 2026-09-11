@@ -31,10 +31,8 @@ class SafeGitGateway:
             repo = git.Repo(self.repo_path)
             repo.git.add(all=True)
 
-            if not repo.is_dirty(untracked_files=True):
-                return {"success": True, "message": "No changes to commit."}
-
-            repo.index.commit(commit_message)
+            if repo.is_dirty(untracked_files=True):
+                repo.index.commit(commit_message)
 
             if not config.GITHUB_TOKEN or not config.GITHUB_SKILLS_REPO:
                 return {
@@ -45,12 +43,12 @@ class SafeGitGateway:
             origin_url = f"https://{config.GITHUB_TOKEN}@github.com/{config.GITHUB_SKILLS_REPO}.git"
             if "origin" in [remote.name for remote in repo.remotes]:
                 repo.remotes.origin.set_url(origin_url)
-                repo.remotes.origin.push()
             else:
-                remote = repo.create_remote("origin", origin_url)
-                remote.push()
+                repo.create_remote("origin", origin_url)
 
-            return {"success": True, "message": "Changes successfully verified and pushed."}
+            current_branch = repo.active_branch.name
+            repo.git.push("-u", "origin", current_branch, "--force")
+            return {"success": True, "message": f"Verified and pushed branch '{current_branch}' to {config.GITHUB_SKILLS_REPO}."}
         except Exception as git_error:
             return {"success": False, "message": f"Git operation failed: {str(git_error)}"}
 
