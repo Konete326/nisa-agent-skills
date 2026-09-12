@@ -4,6 +4,7 @@ from core.engine import orchestration_engine
 from ui.chat_bar import ChatBar
 from ui.activity_feed import ActivityFeed
 from ui.modal import CustomModal
+from core.voice import voice_engine
 
 class NisaDesktopApp(ctk.CTk):
     def __init__(self):
@@ -66,9 +67,10 @@ class NisaDesktopApp(ctk.CTk):
         loaded_count = len(self.engine.loader.registry)
         self.activity_stream.append_event("SYSTEM", f"Agent initialized with {loaded_count} native skills.")
         if config.GEMINI_API_KEY:
-            self.activity_stream.append_event("AI", "Gemini 2.5 Flash operational.")
+            self.activity_stream.append_event("AI", "Gemini 3.6 Flash operational.")
         else:
             self.activity_stream.append_event("WARN", "GEMINI_API_KEY not found in environment.")
+        voice_engine.speak(f"{config.AGENT_NAME} OS is ready")
         self.chat_bar.set_focus()
 
     def _dispatch_user_input(self, user_command):

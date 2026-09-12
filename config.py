@@ -17,6 +17,8 @@ ADMIN_SECRET = os.getenv("ADMIN_SECRET", "").strip()
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "").strip()
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "").strip()
+VOICE_VOLUME = int(os.getenv("VOICE_VOLUME", "90"))
+VOICE_RATE = int(os.getenv("VOICE_RATE", "1"))
 
 mongo_client_instance = None
 
