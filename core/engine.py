@@ -31,35 +31,32 @@ class TaskEngine:
     def submit_task_async(self, instruction, completion_callback=None):
         threading.Thread(target=self._process_task_pipeline, args=(instruction, completion_callback), daemon=True).start()
 
-    def _identify_target(self, query):
-        return next((a for a in ("notepad", "excel", "chrome", "calc", "word", "powerpoint", "cmd", "terminal") if a in query.lower()), None)
+    def _identify_target(self, q):
+        return next((a for a in ("notepad", "excel", "chrome", "calc", "word", "powerpoint", "cmd", "terminal") if a in q.lower()), None)
 
     def _narrate(self, stage, app, ok=True):
         st = stage if stage != "finish" else ("done" if ok else "fail")
         lang = getattr(voice_engine, "get_language", lambda: "UR")()
-        tmpl = STAGE_MSGS.get(st, {}).get(lang, STAGE_MSGS[st]["UR"])
-        voice_engine.speak(tmpl.format(app.capitalize() if app else "Task"))
+        voice_engine.speak(STAGE_MSGS.get(st, {}).get(lang, STAGE_MSGS[st]["UR"]).format(app.capitalize() if app else "Task"))
 
-    def _process_task_pipeline(self, raw_instruction, on_finish=None):
-        self.active_tasks_count += 1
-        self.notify_status("Nisa is executing")
-        sanitized = self.security.sanitize(raw_instruction)
-        target_app = self._identify_target(sanitized or "")
-        if not sanitized:
-            self.log("ERROR", "Received empty task payload")
-            self._finalize_task(on_finish, {"success": False, "status": "rejected"}, target_app)
-            return
-        self._narrate("start", target_app)
-        self.log("TASK", f"Processing: {sanitized}")
-        rid = self._save_task_record(sanitized, "running")
-        try:
-            result = self._route_instruction(sanitized, target_app)
-        except Exception as err:
-            self.log("ERROR", f"Task crash: {err}")
-            result = {"success": False, "error": str(err)}
-        self._update_task_record(rid, "completed" if result.get("success") else "failed", result)
-        self.log("DONE" if result.get("success") else "WARN", str(result))
-        self._finalize_task(on_finish, result, target_app)
+    def _process_task_pipeline(self, raw, on_finish=None):
+        self.active_tasks_count += 1; self.notify_status("Nisa is executing")
+        san = self.security.sanitize(raw); target_app = self._identify_target(san or "")
+        if not san:
+            self.log("ERROR", "Received empty task payload"); self._finalize_task(on_finish, {"success": False, "status": "rejected"}, target_app); return
+        self._narrate("start", target_app); self.log("TASK", f"Processing: {san}")
+        rid = self._save_task_record(san, "running")
+        try: result = self._route_instruction(san, target_app)
+        except Exception as err: self.log("ERROR", f"Task crash: {err}"); result = {"success": False, "error": str(err)}
+        ok = bool(result and (result.get("success") or result.get("status") == "success"))
+        self._update_task_record(rid, "completed" if ok else "failed", result)
+        self.log("DONE" if ok else "WARN", str(result)); self._finalize_task(on_finish, result, target_app)
+
+    def _is_gap(self, res, q):
+        if not res or res.get("success") is False or res.get("status") == "error": return True
+        s = str(res).lower()
+        if "unknown action" in s or (any(w in q.lower() for w in ("table", "write", "likho")) and ("launched" in s or res.get("action") == "launch")): return True
+        return bool(res.get("steps") and any(st.get("status") == "error" or "unknown" in str(st).lower() for st in res["steps"]))
 
     def _route_instruction(self, query, app):
         clean, lowered = query.strip(), query.strip().lower()
@@ -67,46 +64,49 @@ class TaskEngine:
             from evolution.trainer import software_trainer
             return software_trainer.train_skill(clean)
         candidate = app or lowered.replace("launch ", "").replace("open ", "").strip()
-        if self.admin_mode and (candidate in ("notepad", "excel") or shutil.which(candidate)):
-            sk = self.loader.registry.get(candidate)
-            ver = sk.get("metadata", {}).get("version", "1.0.0") if sk else "0.0.0"
-            if not sk or ver < "2.0.0":
-                voice_engine.speak(f"Admin mode detected. Auto-training {candidate} before execution.")
-                from evolution.trainer import software_trainer
-                software_trainer.train_skill(candidate)
-                self.loader.discover_and_load_skills()
-        if app and any(v in lowered for v in ("likho", "write", "save", "jama", "type")):
-            plan = self.advisor.plan_task(clean)
-            steps = plan.get("steps", [])
-            sk = self.loader.registry.get(app or plan.get("target"))
-            if sk and sk.get("execute"):
-                voice_engine.speak("Text likh kar save kar rahi hoon")
-                if steps:
-                    step_res = [sk["execute"](action=st.get("action", "launch"), **{k: v for k, v in st.items() if k != "action"}) for st in steps]
-                    return {"success": True, "action": "multi_step", "steps": step_res}
-                return sk["execute"](query=clean)
-        if app in self.loader.registry and self.loader.registry[app].get("execute"):
-            self._narrate("running", app)
-            return self.loader.registry[app]["execute"](query=clean)
-        launch_skill = self.loader.registry.get("launch_app")
-        if launch_skill and launch_skill.get("execute"):
-            aliases = getattr(launch_skill.get("module"), "APP_ALIASES", {})
-            if candidate in aliases or shutil.which(candidate):
-                self._narrate("running", candidate)
-                return launch_skill["execute"](target=candidate)
-        self.log("AI", "Querying Gemini reasoning engine...")
-        plan = self.advisor.plan_task(query)
-        if plan.get("success") and plan.get("action") == "launch_app" and launch_skill and launch_skill.get("execute"):
-            p = plan.get("parameters", {})
-            self._narrate("running", p.get("target", "app"))
-            return launch_skill["execute"](**p)
-        return plan
+        result = None
+        try:
+            if app and any(v in lowered for v in ("likho", "write", "save", "jama", "type", "table")):
+                plan = self.advisor.plan_task(clean)
+                steps, sk = plan.get("steps", []), self.loader.registry.get(app or plan.get("target"))
+                if sk and sk.get("execute"):
+                    voice_engine.speak("Text likh kar save kar rahi hoon")
+                    if steps: result = {"success": True, "action": "multi_step", "steps": [sk["execute"](action=st.get("action", "launch"), **{k: v for k, v in st.items() if k != "action"}) for st in steps]}
+                    else: result = sk["execute"](query=clean)
+            elif app in self.loader.registry and self.loader.registry[app].get("execute"):
+                self._narrate("running", app); result = self.loader.registry[app]["execute"](query=clean)
+            else:
+                lsk = self.loader.registry.get("launch_app")
+                if lsk and lsk.get("execute") and (candidate in getattr(lsk.get("module"), "APP_ALIASES", {}) or shutil.which(candidate)):
+                    self._narrate("running", candidate); result = lsk["execute"](target=candidate)
+                else:
+                    self.log("AI", "Querying Gemini reasoning engine...")
+                    plan = self.advisor.plan_task(query)
+                    if plan.get("success") and plan.get("action") == "launch_app" and lsk and lsk.get("execute"):
+                        p = plan.get("parameters", {}); self._narrate("running", p.get("target", "app")); result = lsk["execute"](**p)
+                    else: result = plan
+        except Exception as ex: result = {"success": False, "status": "error", "error": str(ex)}
 
-    def _finalize_task(self, callback, outcome, app):
+        if self.admin_mode and self._is_gap(result, clean):
+            target = candidate or app or "system"
+            self.log("EVOLVE", f"Admin Mode: Auto-evolving capability for '{clean}'")
+            voice_engine.speak(f"{target.capitalize()} ki nayi skill seekh kar update kar rahi hoon")
+            from evolution.trainer import software_trainer
+            if software_trainer.evolve_skill_for_task(target, clean).get("success"):
+                self.loader.discover_and_load_skills()
+                voice_engine.speak("Skill update ho gayi, task execute kar rahi hoon")
+                sk = self.loader.registry.get(target)
+                if sk and sk.get("execute"):
+                    res = sk["execute"](query=clean)
+                    return sk["execute"](action="table", query=clean) if (not res or res.get("status") == "error") and "table" in clean.lower() else res
+        return result
+
+    def _finalize_task(self, cb, outcome, app):
         self.active_tasks_count = max(0, self.active_tasks_count - 1)
-        self._narrate("finish", app, bool(outcome and outcome.get("success")))
+        ok = bool(outcome and (outcome.get("success") or outcome.get("status") == "success"))
+        self._narrate("finish", app, ok)
         if self.active_tasks_count == 0: self.notify_status("Nisa (Admin Mode Active)" if self.admin_mode else "Nisa is ready")
-        if callback: callback(outcome)
+        if cb: cb(outcome)
 
     def _save_task_record(self, inst, status):
         rid = ObjectId()

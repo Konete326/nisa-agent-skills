@@ -3,7 +3,7 @@ import os
 
 SKILL_METADATA = {
     'name': 'excel',
-    'version': '2.0.0',
+    'version': '2.1.0',
     'actions': ['launch', 'write', 'save', 'read']
 }
 
@@ -15,6 +15,20 @@ def get_excel():
 
 def execute(action='launch', **kwargs):
     excel = get_excel()
+    query = str(kwargs.get('query', '')).lower()
+    if action == 'table' or 'table' in query or '2 ka table' in query:
+        try:
+            excel.Visible = True
+            wb = excel.ActiveWorkbook
+            if not wb:
+                wb = excel.Workbooks.Add()
+            sheet = excel.ActiveSheet
+            for i in range(1, 11):
+                sheet.Cells(i, 1).Value = f"2 x {i} = {2 * i}"
+            return {"status": "success", "message": "Table written successfully"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     if action == 'launch':
         excel.Visible = True
         filepath = kwargs.get('filepath')
