@@ -6,8 +6,8 @@ from pywinauto import Desktop
 
 SKILL_METADATA = {
     "name": "notepad",
-    "version": "1.0.0",
-    "actions": ["launch", "write", "save", "find_replace", "read"]
+    "version": "2.0.0",
+    "actions": ["launch", "write", "save", "read"]
 }
 skill_meta = SKILL_METADATA
 
@@ -19,16 +19,27 @@ def _get_notepad_edit():
         edit.iface_value
         return np, edit
     except Exception:
-        subprocess.Popen("notepad.exe")
-        time.sleep(1.0)
-        np = d.window(class_name="Notepad")
-        return np, np.child_window(class_name="Edit")
+        try:
+            np = d.window(class_name="Notepad")
+            edit = np.child_window(control_type="Document")
+            edit.iface_value
+            return np, edit
+        except Exception:
+            subprocess.Popen("notepad.exe")
+            time.sleep(1.0)
+            np = d.window(class_name="Notepad")
+            try:
+                return np, np.child_window(class_name="Edit")
+            except Exception:
+                return np, np.child_window(control_type="Document")
 
 def launch(**kwargs):
     try:
         np, _ = _get_notepad_edit()
-        try: np.set_focus()
-        except Exception: pass
+        try:
+            np.set_focus()
+        except Exception:
+            pass
         return {"success": True, "action": "launch", "message": "Notepad active"}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -69,19 +80,10 @@ def save(file_path=None, target=None, **kwargs):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def find_replace(find_text="", replace_text="", **kwargs):
-    try:
-        _, edit = _get_notepad_edit()
-        current = edit.iface_value.CurrentValue or ""
-        edit.iface_value.SetValue(current.replace(str(find_text), str(replace_text)))
-        return {"success": True, "action": "find_replace", "updated": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
 def execute(action="launch", query="", **kwargs):
     if query:
         lowered = query.lower()
-        if not any(k in lowered for k in ("write", "type", "save", "read", "replace")):
+        if not any(k in lowered for k in ("write", "type", "save", "read")):
             return launch(**kwargs)
         if "read" in lowered and not ("write" in lowered or "type" in lowered):
             return read(**kwargs)
@@ -106,5 +108,5 @@ def execute(action="launch", query="", **kwargs):
             save_res = save(file_path=save_target)
             return {"success": True, "action": "write_and_save", "details": save_res}
         return res
-    routes = {"launch": launch, "write": write, "read": read, "save": save, "find_replace": find_replace}
+    routes = {"launch": launch, "write": write, "read": read, "save": save}
     return routes.get(action.lower(), launch)(**kwargs)

@@ -15,7 +15,7 @@ class SoftwareTrainer:
         self.base_dir = Path(config.BASE_DIR)
         self.staging_dir = self.base_dir / "staging"
         self.verify_script = self.base_dir / "tests" / "verify.py"
-        opts = types.HttpOptions(timeout=4000, headers={"X-Server-Timeout": "10"})
+        opts = types.HttpOptions(timeout=25000)
         self.client = genai.Client(api_key=self.api_key, http_options=opts) if self.api_key else None
 
     def train_skill(self, software_name):
@@ -63,7 +63,7 @@ class SoftwareTrainer:
             f"Must define SKILL_METADATA = {{'name': '{name}', 'version': '{version}', 'actions': ['launch', 'write', 'save', 'read']}}. "
             "Must define execute(action='launch', **kwargs). Return raw executable Python code only, no markdown."
         )
-        return self._query_models(prompt) or existing
+        return self._query_models(prompt)
 
     def _repair_code(self, name, version, invalid_code):
         prompt = (

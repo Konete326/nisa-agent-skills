@@ -29,10 +29,11 @@ class SkillHotLoader:
             sys.modules[module_identifier] = module
             spec.loader.exec_module(module)
 
-            meta_data = getattr(module, "skill_meta", {
+            meta_data = getattr(module, "SKILL_METADATA", getattr(module, "skill_meta", {
                 "name": file_path.stem,
+                "version": "1.0.0",
                 "description": "Native Nisa skill"
-            })
+            }))
             entry = {
                 "name": file_path.stem,
                 "category": file_path.parent.name,
