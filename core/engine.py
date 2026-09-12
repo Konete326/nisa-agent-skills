@@ -52,9 +52,12 @@ class TaskEngine:
         self._narrate("start", target_app)
         self.log("TASK", f"Processing: {sanitized}")
         rid = self._save_task_record(sanitized, "running")
-        result = self._route_instruction(sanitized, target_app)
-        flag = "completed" if result.get("success", False) else "failed"
-        self._update_task_record(rid, flag, result)
+        try:
+            result = self._route_instruction(sanitized, target_app)
+        except Exception as err:
+            self.log("ERROR", f"Task crash: {err}")
+            result = {"success": False, "error": str(err)}
+        self._update_task_record(rid, "completed" if result.get("success") else "failed", result)
         self.log("DONE" if result.get("success") else "WARN", str(result))
         self._finalize_task(on_finish, result, target_app)
 
@@ -79,7 +82,7 @@ class TaskEngine:
             if sk and sk.get("execute"):
                 voice_engine.speak("Text likh kar save kar rahi hoon")
                 if steps:
-                    step_res = [sk["execute"](action=st.get("action", "launch"), **st) for st in steps]
+                    step_res = [sk["execute"](action=st.get("action", "launch"), **{k: v for k, v in st.items() if k != "action"}) for st in steps]
                     return {"success": True, "action": "multi_step", "steps": step_res}
                 return sk["execute"](query=clean)
         if app in self.loader.registry and self.loader.registry[app].get("execute"):
@@ -93,11 +96,10 @@ class TaskEngine:
                 return launch_skill["execute"](target=candidate)
         self.log("AI", "Querying Gemini reasoning engine...")
         plan = self.advisor.plan_task(query)
-        if plan.get("success") and plan.get("action") == "launch_app":
-            params = plan.get("parameters", {})
-            if launch_skill and launch_skill.get("execute"):
-                self._narrate("running", params.get("target", "app"))
-                return launch_skill["execute"](**params)
+        if plan.get("success") and plan.get("action") == "launch_app" and launch_skill and launch_skill.get("execute"):
+            p = plan.get("parameters", {})
+            self._narrate("running", p.get("target", "app"))
+            return launch_skill["execute"](**p)
         return plan
 
     def _finalize_task(self, callback, outcome, app):

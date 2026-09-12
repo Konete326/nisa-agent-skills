@@ -6,9 +6,9 @@ from google.genai import types
 import config
 
 class GeminiAdvisor:
-    FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"]
+    FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.6-flash"]
 
-    def __init__(self, api_key=None, model_id="gemini-3.6-flash"):
+    def __init__(self, api_key=None, model_id="gemini-flash-latest"):
         self.api_key = api_key or config.GEMINI_API_KEY
         self.model_id = model_id
         self.client = None
@@ -40,7 +40,7 @@ class GeminiAdvisor:
             f"Instruction: {user_instruction}"
         )
 
-        candidate_models = [self.model_id] + [m for m in self.FALLBACK_MODELS if m != self.model_id]
+        candidate_models = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.6-flash"]
         last_error = None
 
         for target_model in candidate_models:

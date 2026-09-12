@@ -16,9 +16,7 @@ def _find_notepad_hwnd():
     hwnd = win32gui.FindWindow("Notepad", None)
     if not hwnd:
         hwnds = []
-        def _cb(h, l):
-            if "notepad" in win32gui.GetWindowText(h).lower(): l.append(h)
-        win32gui.EnumWindows(_cb, hwnds)
+        win32gui.EnumWindows(lambda h, l: l.append(h) if "notepad" in win32gui.GetWindowText(h).lower() else None, hwnds)
         if hwnds: hwnd = hwnds[0]
     return hwnd
 
@@ -40,9 +38,13 @@ def _get_notepad_edit():
         edit.iface_value
         return np, edit
     except Exception:
-        edit = np.child_window(control_type="Document")
-        edit.iface_value
-        return np, edit
+        try:
+            edit = np.child_window(control_type="Document")
+            edit.iface_value
+            return np, edit
+        except Exception:
+            ehwnd = win32gui.FindWindowEx(hwnd, 0, "Edit", None) if hwnd else 0
+            return np, (d.window(handle=ehwnd) if ehwnd else np)
 
 def launch(**kwargs):
     try:
@@ -50,30 +52,33 @@ def launch(**kwargs):
         try: np.set_focus()
         except Exception: pass
         return {"success": True, "action": "launch", "message": "Notepad active"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception as e: return {"success": False, "error": str(e)}
 
 def write(text="", append=False, **kwargs):
     try:
         _, edit = _get_notepad_edit()
-        cur = edit.iface_value.CurrentValue or ""
+        cur = getattr(getattr(edit, "iface_value", None), "CurrentValue", "") or ""
         new_val = (cur + "\n" + str(text)) if append and cur else str(text)
-        edit.iface_value.SetValue(new_val)
-        return {"success": True, "action": "write", "length": len(new_val)}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        if hasattr(edit, "iface_value") and edit.iface_value:
+            edit.iface_value.SetValue(new_val)
+            return {"success": True, "action": "write", "length": len(new_val)}
+    except Exception: pass
+    try:
+        import pyautogui
+        pyautogui.write(str(text), interval=0.01)
+        return {"success": True, "action": "write_fallback", "length": len(str(text))}
+    except Exception as e: return {"success": False, "error": str(e)}
 
 def read(**kwargs):
     try:
         _, edit = _get_notepad_edit()
-        return {"success": True, "action": "read", "content": edit.iface_value.CurrentValue or ""}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": True, "action": "read", "content": getattr(getattr(edit, "iface_value", None), "CurrentValue", "") or ""}
+    except Exception as e: return {"success": False, "error": str(e)}
 
 def save(file_path=None, target=None, path=None, **kwargs):
     try:
         _, edit = _get_notepad_edit()
-        content = edit.iface_value.CurrentValue or ""
+        content = getattr(getattr(edit, "iface_value", None), "CurrentValue", "") or ""
         raw = file_path or target or path or "notes.txt"
         desktop = Path.home() / "Desktop"
         fname = Path(raw).name if raw != "default" else "notes.txt"
@@ -81,36 +86,27 @@ def save(file_path=None, target=None, path=None, **kwargs):
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
         return {"success": True, "action": "save", "path": str(resolved)}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception as e: return {"success": False, "error": str(e)}
 
 def execute(action="launch", query="", **kwargs):
     if query:
         low = query.lower()
-        if not any(k in low for k in ("write", "type", "likho", "save", "read")):
-            return launch(**kwargs)
-        if "read" in low and not any(k in low for k in ("write", "type", "likho")):
-            return read(**kwargs)
-        text_val, save_target = "", ""
+        if not any(k in low for k in ("write", "type", "likho", "save", "read")): return launch(**kwargs)
+        if "read" in low and not any(k in low for k in ("write", "type", "likho")): return read(**kwargs)
+        text_val = ""
         for kw in ("write ", "type ", "likho "):
             if kw in low:
                 seg = query[query.lower().find(kw) + len(kw):]
                 for sep in (" in notepad", " to notepad", " pe ", " par "):
-                    if sep in seg.lower():
-                        text_val = seg[:seg.lower().find(sep)].strip().strip('"\'')
-                        break
-                if not text_val:
-                    text_val = seg.split(" and save")[0].split(" aur save")[0].strip().strip('"\'')
+                    if sep in seg.lower(): text_val = seg[:seg.lower().find(sep)].strip().strip('"\''); break
+                if not text_val: text_val = seg.split(" and save")[0].split(" aur save")[0].strip().strip('"\'')
                 break
         res = write(text=text_val or "hello world")
-        if "save" in low:
-            save_res = save(file_path="notes.txt")
-            return {"success": True, "action": "write_and_save", "details": save_res}
+        if "save" in low: save(file_path="notes.txt"); return {"success": True, "action": "write_and_save", "details": res}
         return res
     routes = {"launch": launch, "focus_or_launch": launch, "write": write, "read": read, "save": save}
     res = routes.get(action.lower(), launch)(**kwargs)
-    if "text" in kwargs and action.lower() not in ("write", "read"):
-        write(text=kwargs["text"])
-    if ("save_path" in kwargs or "file_path" in kwargs or "path" in kwargs) and action.lower() != "save":
-        save(file_path=kwargs.get("save_path") or kwargs.get("file_path") or kwargs.get("path"))
+    if "text" in kwargs and action.lower() not in ("write", "read"): write(text=kwargs["text"])
+    p = kwargs.get("save_path") or kwargs.get("file_path") or kwargs.get("path")
+    if p and action.lower() != "save": save(file_path=p)
     return res
