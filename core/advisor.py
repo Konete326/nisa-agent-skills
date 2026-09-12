@@ -1,11 +1,14 @@
 from datetime import datetime
+import json
+import threading
 from google import genai
+from google.genai import types
 import config
 
 class GeminiAdvisor:
-    FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"]
+    FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"]
 
-    def __init__(self, api_key=None, model_id="gemini-2.5-flash"):
+    def __init__(self, api_key=None, model_id="gemini-3.6-flash"):
         self.api_key = api_key or config.GEMINI_API_KEY
         self.model_id = model_id
         self.client = None
@@ -14,7 +17,8 @@ class GeminiAdvisor:
     def _setup_client(self):
         if self.api_key:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                opts = types.HttpOptions(timeout=4000, headers={"X-Server-Timeout": "10"})
+                self.client = genai.Client(api_key=self.api_key, http_options=opts)
             except Exception:
                 self.client = None
 
@@ -29,7 +33,11 @@ class GeminiAdvisor:
 
         prompt = (
             "You are Nisa, an autonomous native Windows desktop operator. "
-            "Analyze the instruction and determine the optimal action. "
+            "Analyze the instruction and determine the optimal intent. "
+            "Output strictly valid JSON with no markdown formatting. "
+            "Schema: {\"intent\": \"string\", \"parameters\": {}}. "
+            "If the user wants to launch or open an app, set intent to 'launch_app' "
+            "and include the app name in parameters as 'target'. "
             f"User instruction: {user_instruction}"
         )
 
@@ -38,18 +46,30 @@ class GeminiAdvisor:
 
         for target_model in candidate_models:
             try:
+                budget = 1 if target_model == "gemini-3.6-flash" else 0
+                cfg = types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    thinking_config=types.ThinkingConfig(thinking_budget=budget)
+                )
                 response = self.client.models.generate_content(
                     model=target_model,
-                    contents=prompt
+                    contents=prompt,
+                    config=cfg
                 )
-                reasoning_text = response.text.strip() if response and response.text else "No output"
-                self._log_reasoning(user_instruction, reasoning_text)
+                raw_text = response.text.strip() if response and response.text else "{}"
+                self._log_reasoning(user_instruction, raw_text)
+                
+                try:
+                    parsed = json.loads(raw_text)
+                except Exception:
+                    parsed = {"intent": "ai_reasoning", "parameters": {"raw": raw_text}}
+
                 return {
                     "success": True,
-                    "reasoning": reasoning_text,
-                    "action": "ai_reasoning",
+                    "reasoning": raw_text,
+                    "action": parsed.get("intent", "ai_reasoning"),
                     "model_used": target_model,
-                    "parameters": {"instruction": user_instruction}
+                    "parameters": parsed.get("parameters", {})
                 }
             except Exception as api_error:
                 last_error = api_error
@@ -62,15 +82,17 @@ class GeminiAdvisor:
         }
 
     def _log_reasoning(self, prompt, response):
-        try:
-            collection = config.get_collection("reasoning_history")
-            collection.insert_one({
-                "timestamp": datetime.utcnow().isoformat(),
-                "agent": config.AGENT_NAME,
-                "prompt": prompt,
-                "response": response
-            })
-        except Exception:
-            pass
+        def _write():
+            try:
+                collection = config.get_collection("reasoning_history")
+                collection.insert_one({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "agent": config.AGENT_NAME,
+                    "prompt": prompt,
+                    "response": response
+                })
+            except Exception:
+                pass
+        threading.Thread(target=_write, daemon=True).start()
 
 gemini_advisor = GeminiAdvisor()

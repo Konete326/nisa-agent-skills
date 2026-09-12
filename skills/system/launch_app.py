@@ -20,7 +20,10 @@ APP_ALIASES = {
     "chrome": "chrome.exe",
     "edge": "msedge.exe",
     "code": "code.cmd",
-    "taskmgr": "taskmgr.exe"
+    "taskmgr": "taskmgr.exe",
+    "excel": "excel.exe",
+    "word": "winword.exe",
+    "powerpoint": "powerpnt.exe"
 }
 
 def execute(target="", **kwargs):
