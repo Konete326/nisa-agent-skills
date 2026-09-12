@@ -6,7 +6,7 @@ from pywinauto import Desktop
 
 SKILL_METADATA = {
     "name": "notepad",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "actions": ["launch", "write", "save", "read"]
 }
 skill_meta = SKILL_METADATA
