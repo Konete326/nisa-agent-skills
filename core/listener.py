@@ -53,12 +53,16 @@ class VoiceListener:
         return self.stop_listening() if self.is_listening else self.start_listening()
 
     def _audio_callback(self, recognizer, audio):
-        if not self.is_listening:
+        if not self.is_listening or voice_engine.is_active_speaking():
             return
         lang_key = getattr(voice_engine, "current_lang", getattr(config, "DEFAULT_LANG", "UR")).upper()
         target_lang = LANG_MAP.get(lang_key, "ur-PK")
         try:
+            if voice_engine.is_active_speaking():
+                return
             transcribed = recognizer.recognize_google(audio, language=target_lang)
+            if voice_engine.is_active_speaking():
+                return
             clean_text = str(transcribed).strip()
             if clean_text and self.on_transcribed:
                 self.on_transcribed(clean_text)

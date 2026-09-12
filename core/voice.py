@@ -18,6 +18,8 @@ class VoiceEngine:
     def __init__(self):
         self.message_queue = queue.Queue()
         self.current_lang = getattr(config, "DEFAULT_LANG", "UR")
+        self.is_speaking = False
+        self.speaking_lock = threading.Lock()
         self.worker_thread = threading.Thread(target=self._speech_worker, daemon=True)
         self.worker_thread.start()
 
@@ -30,6 +32,14 @@ class VoiceEngine:
 
     def get_language(self):
         return self.current_lang
+
+    def is_active_speaking(self):
+        with self.speaking_lock:
+            return self.is_speaking
+
+    def _set_speaking(self, status):
+        with self.speaking_lock:
+            self.is_speaking = bool(status)
 
     def speak(self, text, lang=None):
         if text and str(text).strip():
@@ -51,12 +61,15 @@ class VoiceEngine:
                 os.close(fd)
                 asyncio.run(edge_tts.Communicate(text, voice).save(temp_path))
                 if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                    self._set_speaking(True)
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
                     while pygame.mixer.music.get_busy(): time.sleep(0.04)
                     pygame.mixer.music.unload()
+                    time.sleep(0.4)
             except Exception: pass
             finally:
+                self._set_speaking(False)
                 if temp_path and os.path.exists(temp_path):
                     try: os.remove(temp_path)
                     except Exception: pass
