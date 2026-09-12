@@ -29,7 +29,7 @@ class NisaDesktopApp(ctk.CTk):
         brand_badge.grid(row=0, column=0, sticky="w")
         self.status_display = ctk.CTkLabel(top_header, text="Nisa is ready", font=("Segoe UI", 11, "bold"), text_color="#10b981")
         self.status_display.grid(row=0, column=1, sticky="e")
-        self.chat_bar = ChatBar(self, on_submit=self._dispatch_user_input, on_admin_toggle=self._handle_admin_click)
+        self.chat_bar = ChatBar(self, on_submit=self._dispatch_user_input, on_admin_toggle=self._handle_admin_click, on_lang_toggle=self._handle_lang_change)
         self.chat_bar.grid(row=1, column=0, sticky="ew", padx=16, pady=(6, 10))
         self.activity_stream = ActivityFeed(self)
         self.activity_stream.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 14))
@@ -54,6 +54,9 @@ class NisaDesktopApp(ctk.CTk):
             self.activity_stream.append_event("WARN", "GEMINI_API_KEY not found in environment.")
         voice_engine.speak(f"{config.AGENT_NAME} OS is ready")
         self.chat_bar.set_focus()
+
+    def _handle_lang_change(self, lang):
+        self.activity_stream.append_event("VOICE", f"Language switched to {lang}.")
 
     def _handle_admin_click(self):
         if self.engine.admin_mode:

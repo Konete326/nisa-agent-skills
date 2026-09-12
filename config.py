@@ -20,6 +20,13 @@ CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "").strip()
 VOICE_VOLUME = int(os.getenv("VOICE_VOLUME", "90"))
 VOICE_RATE = int(os.getenv("VOICE_RATE", "1"))
 
+VOICE_MAP = {
+    "UR": "ur-PK-UzmaNeural",
+    "EN": "en-US-JennyNeural",
+    "HI": "hi-IN-SwaraNeural"
+}
+DEFAULT_LANG = os.getenv("DEFAULT_LANG", "UR")
+
 mongo_client_instance = None
 
 def get_mongo_client():

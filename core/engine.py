@@ -44,7 +44,7 @@ class TaskEngine:
             self.log("ERROR", "Received empty task payload")
             self._finalize_task(on_finish, {"status": "rejected"})
             return
-        voice_engine.notify_task_acknowledged(sanitized)
+        voice_engine.notify_task_start()
         self.log("TASK", f"Processing: {sanitized}")
         task_record_id = self._save_task_record(sanitized, "running")
         result = self._route_instruction(sanitized)
@@ -56,7 +56,7 @@ class TaskEngine:
     def _route_instruction(self, query):
         clean, lowered = query.strip(), query.strip().lower()
         if lowered.startswith("train ") or lowered.startswith("learn "):
-            voice_engine.notify_action_executing(f"training {clean}")
+            voice_engine.notify_task_running(clean)
             from evolution.trainer import software_trainer
             return software_trainer.train_skill(clean)
         candidate = lowered
@@ -75,20 +75,20 @@ class TaskEngine:
                 software_trainer.train_skill(app)
                 self.loader.discover_and_load_skills()
         if app in self.loader.registry and self.loader.registry[app].get("execute"):
-            voice_engine.notify_action_executing(app)
+            voice_engine.notify_task_running(app)
             return self.loader.registry[app]["execute"](query=clean)
         launch_skill = self.loader.registry.get("launch_app")
         if launch_skill and launch_skill.get("execute"):
             aliases = getattr(launch_skill.get("module"), "APP_ALIASES", {})
             if candidate in aliases or shutil.which(candidate):
-                voice_engine.notify_action_executing(candidate)
+                voice_engine.notify_task_running(candidate)
                 return launch_skill["execute"](target=candidate)
         self.log("AI", "Querying Gemini reasoning engine...")
         plan = self.advisor.plan_task(query)
         if plan.get("success") and plan.get("action") == "launch_app":
             params = plan.get("parameters", {})
             if launch_skill and launch_skill.get("execute"):
-                voice_engine.notify_action_executing(params.get("target", "app"))
+                voice_engine.notify_task_running(params.get("target", "app"))
                 return launch_skill["execute"](**params)
         return plan
 
@@ -96,7 +96,7 @@ class TaskEngine:
         self.active_tasks_count = max(0, self.active_tasks_count - 1)
         if self.active_tasks_count == 0:
             self.notify_status("Nisa (Admin Mode Active)" if self.admin_mode else "Nisa is ready")
-            voice_engine.notify_task_completed(outcome.get("action", "task"))
+            voice_engine.notify_task_complete()
         if callback: callback(outcome)
 
     def _save_task_record(self, instruction, status):

@@ -1,7 +1,8 @@
 import customtkinter as ctk
+import config
 
 class ChatBar(ctk.CTkFrame):
-    def __init__(self, master, on_submit=None, on_admin_toggle=None, **kwargs):
+    def __init__(self, master, on_submit=None, on_admin_toggle=None, on_lang_toggle=None, **kwargs):
         super().__init__(
             master,
             fg_color="#1e293b",
@@ -12,17 +13,14 @@ class ChatBar(ctk.CTkFrame):
         )
         self.on_submit = on_submit
         self.on_admin_toggle = on_admin_toggle
+        self.on_lang_toggle = on_lang_toggle
+        self.languages = ["UR", "EN", "HI"]
         self._setup_layout()
 
     def _setup_layout(self):
         self.grid_columnconfigure(1, weight=1)
 
-        self.indicator = ctk.CTkLabel(
-            self,
-            text="✦",
-            font=("Segoe UI", 14, "bold"),
-            text_color="#6366f1"
-        )
+        self.indicator = ctk.CTkLabel(self, text="✦", font=("Segoe UI", 14, "bold"), text_color="#6366f1")
         self.indicator.grid(row=0, column=0, padx=(16, 6), pady=8)
 
         self.input_field = ctk.CTkEntry(
@@ -39,6 +37,21 @@ class ChatBar(ctk.CTkFrame):
         self.input_field.grid(row=0, column=1, sticky="ew", padx=6, pady=8)
         self.input_field.bind("<Return>", lambda event: self._trigger_submit())
 
+        def_lang = getattr(config, "DEFAULT_LANG", "UR")
+        self.lang_button = ctk.CTkButton(
+            self,
+            text=f"🌐 {def_lang}",
+            width=64,
+            height=32,
+            corner_radius=10,
+            fg_color="#334155",
+            hover_color="#475569",
+            text_color="#38bdf8",
+            font=("Segoe UI", 11, "bold"),
+            command=self._cycle_language
+        )
+        self.lang_button.grid(row=0, column=2, padx=(4, 4), pady=8)
+
         self.admin_badge = ctk.CTkButton(
             self,
             text="Admin",
@@ -51,7 +64,7 @@ class ChatBar(ctk.CTkFrame):
             font=("Segoe UI", 11, "bold"),
             command=self._trigger_admin
         )
-        self.admin_badge.grid(row=0, column=2, padx=(4, 6), pady=8)
+        self.admin_badge.grid(row=0, column=3, padx=(2, 6), pady=8)
 
         self.action_button = ctk.CTkButton(
             self,
@@ -64,7 +77,20 @@ class ChatBar(ctk.CTkFrame):
             font=("Segoe UI", 14, "bold"),
             command=self._trigger_submit
         )
-        self.action_button.grid(row=0, column=3, padx=(2, 12), pady=8)
+        self.action_button.grid(row=0, column=4, padx=(2, 12), pady=8)
+
+    def _cycle_language(self):
+        from core.voice import voice_engine
+        cur = voice_engine.get_language()
+        idx = (self.languages.index(cur) + 1) % len(self.languages) if cur in self.languages else 0
+        nxt = self.languages[idx]
+        voice_engine.set_language(nxt)
+        self.lang_button.configure(text=f"🌐 {nxt}")
+        if self.on_lang_toggle:
+            self.on_lang_toggle(nxt)
+
+    def set_language_display(self, lang):
+        self.lang_button.configure(text=f"🌐 {str(lang).upper()}")
 
     def _trigger_submit(self):
         text_value = self.input_field.get().strip()
@@ -80,19 +106,9 @@ class ChatBar(ctk.CTkFrame):
 
     def set_admin_state(self, is_admin):
         if is_admin:
-            self.admin_badge.configure(
-                text="Admin Active",
-                fg_color="#ef4444",
-                hover_color="#dc2626",
-                text_color="#ffffff"
-            )
+            self.admin_badge.configure(text="Admin Active", fg_color="#ef4444", hover_color="#dc2626", text_color="#ffffff")
         else:
-            self.admin_badge.configure(
-                text="Admin",
-                fg_color="#334155",
-                hover_color="#475569",
-                text_color="#94a3b8"
-            )
+            self.admin_badge.configure(text="Admin", fg_color="#334155", hover_color="#475569", text_color="#94a3b8")
 
     def set_focus(self):
         self.input_field.focus_set()
