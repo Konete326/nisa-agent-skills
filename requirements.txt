@@ -8,3 +8,5 @@ python-dotenv>=1.0.0
 cloudinary>=1.40.0
 edge-tts>=6.1.0
 pygame>=2.5.0
+SpeechRecognition>=3.10.0
+PyAudio>=0.2.14

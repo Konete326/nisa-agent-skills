@@ -8,6 +8,14 @@ from google.genai import types
 import config
 from sync.git_manager import git_gateway
 
+class DocstringRemover(ast.NodeTransformer):
+    def _strip(self, body):
+        return body[1:] if (body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)) else body
+    def visit_Module(self, n): self.generic_visit(n); n.body = self._strip(n.body); return n
+    def visit_ClassDef(self, n): self.generic_visit(n); n.body = self._strip(n.body); return n
+    def visit_FunctionDef(self, n): self.generic_visit(n); n.body = self._strip(n.body); return n
+    def visit_AsyncFunctionDef(self, n): self.generic_visit(n); n.body = self._strip(n.body); return n
+
 class SoftwareTrainer:
     def __init__(self):
         self.api_key = config.GEMINI_API_KEY
@@ -15,8 +23,7 @@ class SoftwareTrainer:
         self.base_dir = Path(config.BASE_DIR)
         self.staging_dir = self.base_dir / "staging"
         self.verify_script = self.base_dir / "tests" / "verify.py"
-        opts = types.HttpOptions(timeout=25000)
-        self.client = genai.Client(api_key=self.api_key, http_options=opts) if self.api_key else None
+        self.client = genai.Client(api_key=self.api_key, http_options=types.HttpOptions(timeout=25000)) if self.api_key else None
 
     def train_skill(self, software_name):
         clean = software_name.lower().replace("train ", "").replace("learn ", "").strip()
@@ -32,7 +39,6 @@ class SoftwareTrainer:
                 return {"success": False, "error": "Code generation failed"}
 
         staged = self.staging_dir / "skills" / "system" / f"{clean}.py"
-        self.staging_dir.mkdir(parents=True, exist_ok=True)
         staged.parent.mkdir(parents=True, exist_ok=True)
         staged.write_text(code, encoding="utf-8")
 
@@ -59,17 +65,14 @@ class SoftwareTrainer:
         prompt = (
             f"Generate a native Python skill file for Windows app '{name}'. "
             f"VERSION: {version}. EXISTING: {existing}. "
-            "RULES: STRICTLY ZERO COMMENTS (no #), ZERO DOCSTRINGS, line count <= 110 lines. "
+            "RULES: STRICTLY ZERO COMMENTS, ZERO DOCSTRINGS, line count <= 110 lines. "
             f"Must define SKILL_METADATA = {{'name': '{name}', 'version': '{version}', 'actions': ['launch', 'write', 'save', 'read']}}. "
             "Must define execute(action='launch', **kwargs). Return raw executable Python code only, no markdown."
         )
         return self._query_models(prompt)
 
     def _repair_code(self, name, version, invalid_code):
-        prompt = (
-            f"Fix syntax errors, strip all comments and docstrings, ensure line count <= 110 lines. "
-            f"Ensure SKILL_METADATA version is '{version}'. Output raw Python only:\n{invalid_code}"
-        )
+        prompt = f"Fix syntax errors, strip docstrings, <= 110 lines. Version '{version}':\\n{invalid_code}"
         return self._query_models(prompt)
 
     def _clean_code(self, raw_text):
@@ -77,8 +80,14 @@ class SoftwareTrainer:
         if "```python" in text: text = text.split("```python", 1)[1]
         elif "```" in text: text = text.split("```", 1)[1]
         if "```" in text: text = text.split("```", 1)[0]
-        cleaned = [l for l in text.strip().splitlines() if not l.strip().startswith("#")]
-        return "\n".join(cleaned).strip()
+        cleaned = "\n".join(l for l in text.strip().splitlines() if not l.strip().startswith("#"))
+        try:
+            tree = ast.parse(cleaned)
+            tree = DocstringRemover().visit(tree)
+            ast.fix_missing_locations(tree)
+            return ast.unparse(tree).strip()
+        except Exception:
+            return cleaned.strip()
 
     def _validate_code(self, code):
         if not code or len(code.splitlines()) > 120: return False
@@ -87,29 +96,21 @@ class SoftwareTrainer:
             for node in ast.walk(tree):
                 if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                     if ast.get_docstring(node): return False
-            for line in code.splitlines():
-                if line.strip().startswith("#"): return False
-            return True
+            return not any("#" in l for l in code.splitlines())
         except Exception: return False
 
     def _extract_version(self, code):
         for line in code.splitlines():
             if '"version":' in line or "'version':" in line:
-                parts = line.split(":")
-                if len(parts) > 1:
-                    return parts[1].replace('"', '').replace("'", "").replace(",", "").strip()
+                return line.split(":")[1].replace('"', '').replace("'", "").replace(",", "").strip()
         return "1.0.0"
 
     def _increment_version(self, ver):
-        try:
-            major = int(ver.split(".")[0])
-            return f"{major + 1}.0.0"
+        try: return f"{int(ver.split('.')[0]) + 1}.0.0"
         except Exception: return "2.0.0"
 
     def _verify_staging(self):
-        try:
-            res = subprocess.run([sys.executable, str(self.verify_script)], cwd=str(self.base_dir), capture_output=True, text=True)
-            return res.returncode == 0
+        try: return subprocess.run([sys.executable, str(self.verify_script)], cwd=str(self.base_dir), capture_output=True, text=True).returncode == 0
         except Exception: return False
 
 software_trainer = SoftwareTrainer()
