@@ -14,7 +14,6 @@ class NisaDesktopApp(ctk.CTk):
         self.minsize(620, 400)
         self.configure(fg_color="#090d16")
         ctk.set_appearance_mode("Dark")
-
         self.engine = orchestration_engine
         self._setup_view()
         self._bind_engine_telemetry()
@@ -23,44 +22,27 @@ class NisaDesktopApp(ctk.CTk):
     def _setup_view(self):
         self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
-
         top_header = ctk.CTkFrame(self, fg_color="transparent", height=38)
         top_header.grid(row=0, column=0, sticky="ew", padx=20, pady=(14, 2))
         top_header.grid_columnconfigure(1, weight=1)
-
-        brand_badge = ctk.CTkLabel(
-            top_header,
-            text=f"● {config.AGENT_NAME} OS",
-            font=("Segoe UI", 13, "bold"),
-            text_color="#6366f1"
-        )
+        brand_badge = ctk.CTkLabel(top_header, text=f"● {config.AGENT_NAME} OS", font=("Segoe UI", 13, "bold"), text_color="#6366f1")
         brand_badge.grid(row=0, column=0, sticky="w")
-
-        self.status_display = ctk.CTkLabel(
-            top_header,
-            text="Nisa is ready",
-            font=("Segoe UI", 11, "bold"),
-            text_color="#10b981"
-        )
+        self.status_display = ctk.CTkLabel(top_header, text="Nisa is ready", font=("Segoe UI", 11, "bold"), text_color="#10b981")
         self.status_display.grid(row=0, column=1, sticky="e")
-
-        self.chat_bar = ChatBar(self, on_submit=self._dispatch_user_input)
+        self.chat_bar = ChatBar(self, on_submit=self._dispatch_user_input, on_admin_toggle=self._handle_admin_click)
         self.chat_bar.grid(row=1, column=0, sticky="ew", padx=16, pady=(6, 10))
-
         self.activity_stream = ActivityFeed(self)
         self.activity_stream.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 14))
 
     def _bind_engine_telemetry(self):
-        self.engine.register_log_listener(
-            lambda category, text: self.after(0, self.activity_stream.append_event, category, text)
-        )
-        self.engine.register_status_listener(
-            lambda status_text: self.after(0, self._update_status_ui, status_text)
-        )
+        self.engine.register_log_listener(lambda category, text: self.after(0, self.activity_stream.append_event, category, text))
+        self.engine.register_status_listener(lambda status_text: self.after(0, self._update_status_ui, status_text))
 
     def _update_status_ui(self, status_text):
+        if self.engine.admin_mode and "ready" in status_text.lower():
+            status_text = "Nisa (Admin Mode Active)"
         is_busy = "executing" in status_text.lower()
-        badge_color = "#f59e0b" if is_busy else "#10b981"
+        badge_color = "#f59e0b" if is_busy else ("#ef4444" if self.engine.admin_mode else "#10b981")
         self.status_display.configure(text=status_text, text_color=badge_color)
 
     def _initialize_system(self):
@@ -73,11 +55,32 @@ class NisaDesktopApp(ctk.CTk):
         voice_engine.speak(f"{config.AGENT_NAME} OS is ready")
         self.chat_bar.set_focus()
 
+    def _handle_admin_click(self):
+        if self.engine.admin_mode:
+            self.engine.admin_mode = False
+            self.chat_bar.set_admin_state(False)
+            self._update_status_ui("Nisa is ready")
+            self.activity_stream.append_event("SYSTEM", "Normal Mode active.")
+            voice_engine.speak("Admin mode deactivated.")
+        else:
+            CustomModal(self, title="Admin Authentication", message="Enter Admin Secret to unlock root execution:", on_confirm=self._verify_admin_password, is_password=True)
+
+    def _verify_admin_password(self, secret_input):
+        if secret_input and secret_input == config.ADMIN_SECRET:
+            self.engine.admin_mode = True
+            self.chat_bar.set_admin_state(True)
+            self._update_status_ui("Nisa (Admin Mode Active)")
+            self.activity_stream.append_event("SECURITY", "Admin Mode enabled successfully.")
+            voice_engine.speak("Admin mode activated.")
+        else:
+            CustomModal(self, title="Access Denied", message="Invalid admin credentials.", is_confirm=False)
+            self.activity_stream.append_event("ERROR", "Invalid admin authentication attempt.")
+            voice_engine.speak("Access denied.")
+
     def _dispatch_user_input(self, user_command):
         if user_command.lower().startswith("security "):
             CustomModal(self, title="Security Status", message="Zero-trust security module is active.", is_confirm=False)
             return
-
         self.engine.submit_task_async(user_command)
 
 def main():

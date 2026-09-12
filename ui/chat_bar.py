@@ -1,7 +1,7 @@
 import customtkinter as ctk
 
 class ChatBar(ctk.CTkFrame):
-    def __init__(self, master, on_submit=None, **kwargs):
+    def __init__(self, master, on_submit=None, on_admin_toggle=None, **kwargs):
         super().__init__(
             master,
             fg_color="#1e293b",
@@ -11,6 +11,7 @@ class ChatBar(ctk.CTkFrame):
             **kwargs
         )
         self.on_submit = on_submit
+        self.on_admin_toggle = on_admin_toggle
         self._setup_layout()
 
     def _setup_layout(self):
@@ -38,6 +39,20 @@ class ChatBar(ctk.CTkFrame):
         self.input_field.grid(row=0, column=1, sticky="ew", padx=6, pady=8)
         self.input_field.bind("<Return>", lambda event: self._trigger_submit())
 
+        self.admin_badge = ctk.CTkButton(
+            self,
+            text="Admin",
+            width=70,
+            height=32,
+            corner_radius=10,
+            fg_color="#334155",
+            hover_color="#475569",
+            text_color="#94a3b8",
+            font=("Segoe UI", 11, "bold"),
+            command=self._trigger_admin
+        )
+        self.admin_badge.grid(row=0, column=2, padx=(4, 6), pady=8)
+
         self.action_button = ctk.CTkButton(
             self,
             text="➤",
@@ -49,7 +64,7 @@ class ChatBar(ctk.CTkFrame):
             font=("Segoe UI", 14, "bold"),
             command=self._trigger_submit
         )
-        self.action_button.grid(row=0, column=2, padx=(6, 12), pady=8)
+        self.action_button.grid(row=0, column=3, padx=(2, 12), pady=8)
 
     def _trigger_submit(self):
         text_value = self.input_field.get().strip()
@@ -58,6 +73,26 @@ class ChatBar(ctk.CTkFrame):
         self.input_field.delete(0, "end")
         if self.on_submit:
             self.on_submit(text_value)
+
+    def _trigger_admin(self):
+        if self.on_admin_toggle:
+            self.on_admin_toggle()
+
+    def set_admin_state(self, is_admin):
+        if is_admin:
+            self.admin_badge.configure(
+                text="Admin Active",
+                fg_color="#ef4444",
+                hover_color="#dc2626",
+                text_color="#ffffff"
+            )
+        else:
+            self.admin_badge.configure(
+                text="Admin",
+                fg_color="#334155",
+                hover_color="#475569",
+                text_color="#94a3b8"
+            )
 
     def set_focus(self):
         self.input_field.focus_set()

@@ -18,12 +18,10 @@ class TaskEngine:
         self.listeners = []
         self.status_listeners = []
         self.active_tasks_count = 0
+        self.admin_mode = False
 
-    def register_log_listener(self, cb):
-        self.listeners.append(cb)
-
-    def register_status_listener(self, cb):
-        self.status_listeners.append(cb)
+    def register_log_listener(self, cb): self.listeners.append(cb)
+    def register_status_listener(self, cb): self.status_listeners.append(cb)
 
     def notify_status(self, text):
         for l in self.status_listeners:
@@ -58,19 +56,27 @@ class TaskEngine:
     def _route_instruction(self, query):
         clean, lowered = query.strip(), query.strip().lower()
         if lowered.startswith("train ") or lowered.startswith("learn "):
-            from evolution.trainer import software_trainer
             voice_engine.notify_action_executing(f"training {clean}")
+            from evolution.trainer import software_trainer
             return software_trainer.train_skill(clean)
-        if "notepad" in lowered:
-            skill = self.loader.registry.get("notepad")
-            if skill and skill.get("execute"):
-                voice_engine.notify_action_executing("notepad")
-                return skill["execute"](query=clean)
         candidate = lowered
         for p in ("launch ", "open "):
             if lowered.startswith(p):
                 candidate = lowered[len(p):].strip()
                 break
+        known = ("notepad", "chrome", "word", "excel", "powerpoint", "calc", "cmd", "terminal")
+        app = next((a for a in known if a in lowered), candidate)
+        if self.admin_mode and (app in known or shutil.which(app)):
+            sk = self.loader.registry.get(app)
+            ver = sk.get("metadata", {}).get("version", "1.0.0") if sk else "0.0.0"
+            if not sk or ver < "2.0.0":
+                voice_engine.speak(f"Admin mode detected. Auto-training {app} before execution.")
+                from evolution.trainer import software_trainer
+                software_trainer.train_skill(app)
+                self.loader.discover_and_load_skills()
+        if app in self.loader.registry and self.loader.registry[app].get("execute"):
+            voice_engine.notify_action_executing(app)
+            return self.loader.registry[app]["execute"](query=clean)
         launch_skill = self.loader.registry.get("launch_app")
         if launch_skill and launch_skill.get("execute"):
             aliases = getattr(launch_skill.get("module"), "APP_ALIASES", {})
@@ -89,23 +95,23 @@ class TaskEngine:
     def _finalize_task(self, callback, outcome):
         self.active_tasks_count = max(0, self.active_tasks_count - 1)
         if self.active_tasks_count == 0:
-            self.notify_status("Nisa is ready")
+            self.notify_status("Nisa (Admin Mode Active)" if self.admin_mode else "Nisa is ready")
             voice_engine.notify_task_completed(outcome.get("action", "task"))
         if callback: callback(outcome)
 
     def _save_task_record(self, instruction, status):
-        record_id = ObjectId()
-        def _write():
-            try: config.get_collection("tasks").insert_one({"_id": record_id, "instruction": instruction, "status": status, "created_at": datetime.utcnow().isoformat()})
+        rid = ObjectId()
+        def _w():
+            try: config.get_collection("tasks").insert_one({"_id": rid, "instruction": instruction, "status": status, "created_at": datetime.utcnow().isoformat()})
             except Exception: pass
-        threading.Thread(target=_write, daemon=True).start()
-        return record_id
+        threading.Thread(target=_w, daemon=True).start()
+        return rid
 
-    def _update_task_record(self, record_id, status, outcome):
-        if not record_id: return
-        def _write():
-            try: config.get_collection("tasks").update_one({"_id": record_id}, {"$set": {"status": status, "outcome": outcome, "finished_at": datetime.utcnow().isoformat()}})
+    def _update_task_record(self, rid, status, outcome):
+        if not rid: return
+        def _w():
+            try: config.get_collection("tasks").update_one({"_id": rid}, {"$set": {"status": status, "outcome": outcome, "finished_at": datetime.utcnow().isoformat()}})
             except Exception: pass
-        threading.Thread(target=_write, daemon=True).start()
+        threading.Thread(target=_w, daemon=True).start()
 
 orchestration_engine = TaskEngine()
