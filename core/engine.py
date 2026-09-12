@@ -25,16 +25,8 @@ class TaskEngine:
 
     def register_log_listener(self, cb): self.listeners.append(cb)
     def register_status_listener(self, cb): self.status_listeners.append(cb)
-
-    def notify_status(self, text):
-        for l in self.status_listeners:
-            try: l(text)
-            except Exception: pass
-
-    def log(self, event_type, message):
-        for l in self.listeners:
-            try: l(event_type.upper(), message)
-            except Exception: pass
+    def notify_status(self, text): [l(text) for l in self.status_listeners]
+    def log(self, cat, msg): [l(cat.upper(), msg) for l in self.listeners]
 
     def submit_task_async(self, instruction, completion_callback=None):
         threading.Thread(target=self._process_task_pipeline, args=(instruction, completion_callback), daemon=True).start()
@@ -80,6 +72,16 @@ class TaskEngine:
                 from evolution.trainer import software_trainer
                 software_trainer.train_skill(candidate)
                 self.loader.discover_and_load_skills()
+        if app and any(v in lowered for v in ("likho", "write", "save", "jama", "type")):
+            plan = self.advisor.plan_task(clean)
+            steps = plan.get("steps", [])
+            sk = self.loader.registry.get(app or plan.get("target"))
+            if sk and sk.get("execute"):
+                voice_engine.speak("Text likh kar save kar rahi hoon")
+                if steps:
+                    step_res = [sk["execute"](action=st.get("action", "launch"), **st) for st in steps]
+                    return {"success": True, "action": "multi_step", "steps": step_res}
+                return sk["execute"](query=clean)
         if app in self.loader.registry and self.loader.registry[app].get("execute"):
             self._narrate("running", app)
             return self.loader.registry[app]["execute"](query=clean)
@@ -101,8 +103,7 @@ class TaskEngine:
     def _finalize_task(self, callback, outcome, app):
         self.active_tasks_count = max(0, self.active_tasks_count - 1)
         self._narrate("finish", app, bool(outcome and outcome.get("success")))
-        if self.active_tasks_count == 0:
-            self.notify_status("Nisa (Admin Mode Active)" if self.admin_mode else "Nisa is ready")
+        if self.active_tasks_count == 0: self.notify_status("Nisa (Admin Mode Active)" if self.admin_mode else "Nisa is ready")
         if callback: callback(outcome)
 
     def _save_task_record(self, inst, status):
@@ -111,7 +112,6 @@ class TaskEngine:
         return rid
 
     def _update_task_record(self, rid, status, outcome):
-        if rid:
-            threading.Thread(target=lambda: config.get_collection("tasks").update_one({"_id": rid}, {"$set": {"status": status, "outcome": outcome, "finished_at": datetime.utcnow().isoformat()}}), daemon=True).start()
+        if rid: threading.Thread(target=lambda: config.get_collection("tasks").update_one({"_id": rid}, {"$set": {"status": status, "outcome": outcome, "finished_at": datetime.utcnow().isoformat()}}), daemon=True).start()
 
 orchestration_engine = TaskEngine()

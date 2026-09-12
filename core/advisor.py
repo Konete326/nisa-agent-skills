@@ -33,12 +33,11 @@ class GeminiAdvisor:
 
         prompt = (
             "You are Nisa, an autonomous native Windows desktop operator. "
-            "Analyze the instruction and determine the optimal intent. "
-            "Output strictly valid JSON with no markdown formatting. "
-            "Schema: {\"intent\": \"string\", \"parameters\": {}}. "
-            "If the user wants to launch or open an app, set intent to 'launch_app' "
-            "and include the app name in parameters as 'target'. "
-            f"User instruction: {user_instruction}"
+            "Analyze the instruction (English, Urdu, Roman Urdu) and determine the intent. "
+            "Output strictly valid JSON with no markdown. "
+            "If simple app launch: {\"intent\": \"launch_app\", \"target\": \"notepad\"}. "
+            "If multi-step instruction: {\"intent\": \"execute_skill\", \"target\": \"notepad\", \"steps\": [{\"action\": \"focus_or_launch\"}, {\"action\": \"write\", \"text\": \"...\"}, {\"action\": \"save\", \"path\": \"default\"}]}. "
+            f"Instruction: {user_instruction}"
         )
 
         candidate_models = [self.model_id] + [m for m in self.FALLBACK_MODELS if m != self.model_id]
@@ -46,10 +45,9 @@ class GeminiAdvisor:
 
         for target_model in candidate_models:
             try:
-                budget = 1 if target_model == "gemini-3.6-flash" else 0
                 cfg = types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    thinking_config=types.ThinkingConfig(thinking_budget=budget)
+                    thinking_config=types.ThinkingConfig(thinking_budget=0)
                 )
                 response = self.client.models.generate_content(
                     model=target_model,
@@ -58,7 +56,6 @@ class GeminiAdvisor:
                 )
                 raw_text = response.text.strip() if response and response.text else "{}"
                 self._log_reasoning(user_instruction, raw_text)
-                
                 try:
                     parsed = json.loads(raw_text)
                 except Exception:
@@ -68,6 +65,8 @@ class GeminiAdvisor:
                     "success": True,
                     "reasoning": raw_text,
                     "action": parsed.get("intent", "ai_reasoning"),
+                    "target": parsed.get("target", parsed.get("parameters", {}).get("target", "")),
+                    "steps": parsed.get("steps", []),
                     "model_used": target_model,
                     "parameters": parsed.get("parameters", {})
                 }
@@ -84,15 +83,13 @@ class GeminiAdvisor:
     def _log_reasoning(self, prompt, response):
         def _write():
             try:
-                collection = config.get_collection("reasoning_history")
-                collection.insert_one({
+                config.get_collection("reasoning_history").insert_one({
                     "timestamp": datetime.utcnow().isoformat(),
                     "agent": config.AGENT_NAME,
                     "prompt": prompt,
                     "response": response
                 })
-            except Exception:
-                pass
+            except Exception: pass
         threading.Thread(target=_write, daemon=True).start()
 
 gemini_advisor = GeminiAdvisor()
